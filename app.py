@@ -1,8 +1,6 @@
 import os
 import requests
-from flask import Flask, jsonify
-from io import BytesIO
-
+from flask import Flask
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
@@ -13,7 +11,7 @@ from telegram.ext import (
     filters,
 )
 
-# --- Flask для Render healthcheck ---
+# --- Flask для healthcheck Render ---
 app = Flask(__name__)
 
 @app.route("/")
@@ -55,7 +53,19 @@ async def get_father(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if resp.status_code == 200:
         await update.message.reply_photo(photo=resp.content, caption="Вот результат 👶")
     else:
-        await update.message.reply_text(f"Ошибка: {resp.text}")
+        # Логируем полный ответ в консоль Render
+        print("=== Hugging Face API ERROR ===")
+        print("Status:", resp.status_code)
+        print("Full response:", resp.text)
+        print("==============================")
+
+        # Пользователю отправляем сокращённый вариант
+        error_msg = resp.text
+        if len(error_msg) > 1000:
+            error_msg = error_msg[:1000] + "... (обрезано)"
+        await update.message.reply_text(
+            f"Ошибка от Hugging Face API (код {resp.status_code}):\n{error_msg}"
+        )
 
     return ConversationHandler.END
 
@@ -63,7 +73,6 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Операция отменена ❌")
     return ConversationHandler.END
 
-# --- Запуск ---
 def main():
     # Запускаем Flask в отдельном потоке
     import threading
@@ -72,7 +81,7 @@ def main():
         target=lambda: app.run(host="0.0.0.0", port=port)
     ).start()
 
-    # Запускаем Telegram‑бота в основном event loop
+    # Запускаем Telegram‑бота
     application = ApplicationBuilder().token(TG_BOT_TOKEN).build()
 
     conv_handler = ConversationHandler(
