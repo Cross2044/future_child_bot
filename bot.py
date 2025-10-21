@@ -1,13 +1,15 @@
 import os
+import asyncio
 import base64
 import logging
 import requests
-from aiogram import Bot, Dispatcher, executor, types
+from aiogram import Bot, Dispatcher, types
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiohttp import web
 
 logging.basicConfig(level=logging.INFO)
 
-# Переменные окружения (Render их подставит автоматически)
+# Переменные окружения
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
@@ -48,7 +50,7 @@ def kb_restart():
     )
     return kb
 
-# --- Обработчики ---
+# --- Обработчики бота ---
 @dp.message_handler(commands=['start'])
 async def cmd_start(message: types.Message):
     uid = message.from_user.id
@@ -187,5 +189,24 @@ async def handle_restart(callback: types.CallbackQuery):
 async def block_text(message: types.Message):
     await message.answer("Пожалуйста, используй кнопки или отправь фото.")
 
+# --- Healthcheck HTTP server для Render ---
+async def handle_health(request):
+    return web.Response(text="OK")
+
+async def start_web_app():
+    app = web.Application()
+    app.router.add_get("/", handle_health)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", int(os.getenv("PORT", 10000)))
+    await site.start()
+
+# --- Запуск бота и healthcheck вместе ---
+async def main():
+    await asyncio.gather(
+        start_web_app(),
+        dp.start_polling()
+    )
+
 if __name__ == "__main__":
-    executor.start_polling(dp, skip_updates=True)
+    asyncio.run(main())
