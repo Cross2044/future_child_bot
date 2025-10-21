@@ -1,41 +1,80 @@
 import os
 import requests
-from flask import Flask, request, jsonify, send_file
-from io import BytesIO
+from flask import Flask
 
+from telegram import Update, InputFile
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
+
+# Flask для Render healthcheck
 app = Flask(__name__)
 
+@app.route("/")
+def health():
+    return "OK", 200
+
+# --- Telegram Bot ---
 HF_API_TOKEN = os.getenv("HF_API_TOKEN")
-# Здесь укажи модель, например FaceFusion Space
+TG_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 MODEL_URL = "https://api-inference.huggingface.co/models/leonelhs/FaceFusion"
 
 headers = {"Authorization": f"Bearer {HF_API_TOKEN}"}
 
-@app.route("/generate", methods=["POST"])
-def generate():
-    if "mother" not in request.files or "father" not in request.files:
-        return jsonify({"error": "Нужно загрузить два фото: mother и father"}), 400
+# Состояния диалога
+WAITING_MOTHER, WAITING_FATHER = range(2)
 
-    mother = request.files["mother"].read()
-    father = request.files["father"].read()
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Привет! Пришли фото мамы 👩")
+    return WAITING_MOTHER
 
-    # Отправляем фото в Hugging Face API
+async def get_mother(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    photo = await update.message.photo[-1].get_file()
+    context.user_data["mother"] = await photo.download_as_bytearray()
+    await update.message.reply_text("Фото мамы получено ✅ Теперь пришли фото папы 👨")
+    return WAITING_FATHER
+
+async def get_father(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    photo = await update.message.photo[-1].get_file()
+    father = await photo.download_as_bytearray()
+    mother = context.user_data.get("mother")
+
+    await update.message.reply_text("Генерирую изображение ребёнка...")
+
     resp = requests.post(
         MODEL_URL,
         headers=headers,
         files={"image1": mother, "image2": father}
     )
 
-    if resp.status_code != 200:
-        return jsonify({"error": resp.text}), resp.status_code
+    if resp.status_code == 200:
+        await update.message.reply_photo(photo=resp.content, caption="Вот результат 👶")
+    else:
+        await update.message.reply_text(f"Ошибка: {resp.text}")
 
-    # Возвращаем картинку напрямую
-    return send_file(BytesIO(resp.content), mimetype="image/png")
+    return ConversationHandler.END
 
-@app.route("/")
-def health():
-    return "OK", 200
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Операция отменена ❌")
+    return ConversationHandler.END
+
+def run_bot():
+    application = ApplicationBuilder().token(TG_BOT_TOKEN).build()
+
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler("start", start)],
+        states={
+            WAITING_MOTHER: [MessageHandler(filters.PHOTO, get_mother)],
+            WAITING_FATHER: [MessageHandler(filters.PHOTO, get_father)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
+
+    application.add_handler(conv_handler)
+    application.run_polling()
 
 if __name__ == "__main__":
+    # Запускаем Flask и бота параллельно
+    import threading
+    threading.Thread(target=run_bot).start()
+
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
