@@ -17,12 +17,6 @@ if not TELEGRAM_TOKEN or not GEMINI_API_KEY:
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher(bot)
 
-# Список каналов для проверки подписки
-CHANNELS = [
-    "@your_channel1",  # сюда добавь свои каналы
-    "@your_channel2",
-]
-
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generate?key={GEMINI_API_KEY}"
 
 users = {}
@@ -54,26 +48,10 @@ def kb_restart():
     )
     return kb
 
-# --- Проверка подписки ---
-async def is_subscribed(user_id: int) -> bool:
-    for channel in CHANNELS:
-        try:
-            member = await bot.get_chat_member(chat_id=channel, user_id=user_id)
-            if member.status not in ["member", "administrator", "creator"]:
-                return False
-        except Exception:
-            return False
-    return True
-
 # --- Обработчики ---
 @dp.message_handler(commands=['start'])
 async def cmd_start(message: types.Message):
     uid = message.from_user.id
-    if not await is_subscribed(uid):
-        links = "\n".join([f"• {c}" for c in CHANNELS])
-        await message.answer(f"Подпишись на каналы:\n{links}\nи снова введи /start")
-        return
-
     await message.answer("Привет! Я генерирую фото будущих детей по фото родителей.\nСкинь фото девушки (мамы).")
     users[uid] = {"step": "await_mother"}
 
@@ -125,7 +103,7 @@ async def choose_girls(callback: types.CallbackQuery):
 async def choose_age(callback: types.CallbackQuery):
     uid = callback.from_user.id
     age = int(callback.data.split(":")[1])
-    step = users[uid]["step"]
+    step = users[uid].get("step")
 
     if step == "choose_age_single":
         users[uid]["age_single"] = age
