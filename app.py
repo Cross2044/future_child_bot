@@ -1,11 +1,19 @@
 import os
 import requests
-from flask import Flask
+from flask import Flask, jsonify
+from io import BytesIO
 
-from telegram import Update, InputFile
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
+from telegram import Update
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    ConversationHandler,
+    ContextTypes,
+    filters,
+)
 
-# Flask для Render healthcheck
+# --- Flask для Render healthcheck ---
 app = Flask(__name__)
 
 @app.route("/")
@@ -19,7 +27,6 @@ MODEL_URL = "https://api-inference.huggingface.co/models/leonelhs/FaceFusion"
 
 headers = {"Authorization": f"Bearer {HF_API_TOKEN}"}
 
-# Состояния диалога
 WAITING_MOTHER, WAITING_FATHER = range(2)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -56,7 +63,16 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Операция отменена ❌")
     return ConversationHandler.END
 
-def run_bot():
+# --- Запуск ---
+def main():
+    # Запускаем Flask в отдельном потоке
+    import threading
+    port = int(os.environ.get("PORT", 10000))
+    threading.Thread(
+        target=lambda: app.run(host="0.0.0.0", port=port)
+    ).start()
+
+    # Запускаем Telegram‑бота в основном event loop
     application = ApplicationBuilder().token(TG_BOT_TOKEN).build()
 
     conv_handler = ConversationHandler(
@@ -72,9 +88,4 @@ def run_bot():
     application.run_polling()
 
 if __name__ == "__main__":
-    # Запускаем Flask и бота параллельно
-    import threading
-    threading.Thread(target=run_bot).start()
-
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    main()
